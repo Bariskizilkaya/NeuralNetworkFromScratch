@@ -1,136 +1,96 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import random
 
 class Neuron:
-    def __init__(self, inputQuantity=1, bias=1):
-        self.inputQuantity = inputQuantity
-        self.weights = [1 for _ in range(self.inputQuantity)]
-        self.bias = bias
-
-    def sigmoid(self,y):
-        return 1/(1+np.exp(-y))
+    def __init__(self, input_size):
+        self.weights = np.random.rand(input_size) * 0.1 - 0.05  # Initialize weights in range [-0.05, 0.05]
+        self.bias = np.random.rand() * 0.1 - 0.05
+        self.output_value = 0
+        self.delta = None  # Placeholder for delta during backpropagation
 
     def output(self, x):
-       #print("weights {}".format(self.weights))
-       #print("bias {}".format(self.bias))
-       y = x * self.weights[0]
-       y += self.bias
-       return self.sigmoid(y)
-    
-class Layer:
-    def __init__(self, neuronQuantity=1, inputQuantity=1,bias=1):
-        self.neuronQuantity = neuronQuantity
-        self.inputQuantity = inputQuantity
-        self.bias = bias
-        self.layer = []
+        self.output_value = self.tanh(np.dot(self.weights, x) + self.bias)
+        return self.output_value
 
-    def createLayer(self):
-        self.layer = [Neuron(inputQuantity=self.inputQuantity,bias=self.bias) \
-                                           for _ in range(self.neuronQuantity)]
+    def tanh(self, z):
+        return np.tanh(z)
+
+    def tanh_derivative(self, z):
+        return 1 - z ** 2
+
+class Layer:
+    def __init__(self, neuron_quantity, input_size):
+        self.neurons = [Neuron(input_size) for _ in range(neuron_quantity)]
+
+    def forward(self, x):
+        return np.array([neuron.output(x) for neuron in self.neurons])
 
 class NeuralNetwork:
-    def __init__(self,inputLayerNeuronQuantity=1,\
-                      hiddenLayerNeuronQuantity=1,\
-                      outputLayerNeuronQuantity=1,\
-                      hiddenlayerQuantity=1,\
-                      bias=1):
-        self.inputLayerNeuronQuantity = inputLayerNeuronQuantity
-        self.hiddenLayerNeuronQuantity = hiddenLayerNeuronQuantity
-        self.outputLayerNeuronQuantity = outputLayerNeuronQuantity
-        self.hiddenlayerQuantity = hiddenlayerQuantity
-        self.bias = bias
-        self.output_matrix=[]
+    def __init__(self, input_size, hidden_layer_size, output_size):
+        self.layers = []
+        self.layers.append(Layer(hidden_layer_size, input_size))
+        self.layers.append(Layer(output_size, hidden_layer_size))
 
-    def createNetwork(self):
-        self.network=[Layer(neuronQuantity=self.hiddenLayerNeuronQuantity,\
-                            inputQuantity=self.inputLayerNeuronQuantity,\
-                            bias=self.bias) \
-                            for _ in range(self.hiddenlayerQuantity)]
+    def forward_pass(self, x):
+        for layer in self.layers:
+            x = layer.forward(x)
+        return x
 
-        self.network.insert(0,Layer(neuronQuantity=self.inputLayerNeuronQuantity,\
-                            inputQuantity=2,\
-                            bias=1 ))
+    def fit(self, data, target, learning_rate=0.1, epochs=10000):
+        for epoch in range(epochs):
+            for x, y_true in zip(data, target):
+                y_pred = self.forward_pass(x)
 
-        self.network.append(Layer(neuronQuantity=self.outputLayerNeuronQuantity,\
-                            # Quantity of 1 step back layer will be the input
-                            # quantity of the output layer
-                            inputQuantity = self.hiddenLayerNeuronQuantity,bias=1 ))
+                # Calculate the mean squared error (MSE)
+                mse = np.mean((y_pred - y_true) ** 2)
 
-    def prepareNetwork(self):
-        self.createNetwork()
-        for l in self.network:
-            l.createLayer()
+                self.backpropagation(x, y_true, learning_rate)
 
-    def forwardPass(self,x):
-        # 2 for input layer and output layer
- 
+            if epoch % 1000 == 0:
+                print(f"Epoch {epoch}, MSE: {mse}")
+
+    def backpropagation(self, x, y_true, learning_rate):
+        # Calculate output layer deltas
+        output_layer = self.layers[-1]
+        output = np.array([neuron.output_value for neuron in output_layer.neurons])
         
-        # print("layer 0 {}",self.network[0].layer)
-        # print("layer 1 {}",self.network[1].layer)
-        # print("layer 2 {}",self.network[2].layer)
+        # Calculate error
+        output_error = y_true - output
+        for i, neuron in enumerate(output_layer.neurons):
+            neuron.delta = output_error[i] * neuron.tanh_derivative(output[i])
 
-        self.output_matrix=[]
-        for index_layer, l in enumerate(self.network):
-            #print(index_layer, l)
-            local_matrix=[]
-            if index_layer == 0:
-                for index_n,n in enumerate(l.layer):
-                    local_matrix.append(n.output(x[index_n]))
-            else:
-                for index_n,n in enumerate(l.layer):
-                    preout=np.sum(self.output_matrix[index_layer-1])
-                    local_matrix.append(n.output(preout))
-            self.output_matrix.append(local_matrix)
-            
-            #print(self.output_matrix)
+        # Backpropagate the error to the hidden layer
+        hidden_layer = self.layers[-2]
+        hidden_output = np.array([neuron.output_value for neuron in hidden_layer.neurons])
 
-    def result(self):
-        return self.output_matrix[-1]
-    
-    def mse(self,y_ture, y_pred):
-        return np.mean(np.power(y_ture-y_pred , 2))
+        # Update weights and biases for the output layer
+        for i, neuron in enumerate(output_layer.neurons):
+            for j in range(len(neuron.weights)):
+                neuron.weights[j] += learning_rate * neuron.delta * hidden_output[j]
+            neuron.bias += learning_rate * neuron.delta  # Update bias for output neuron
 
-    def mse_prime(self,y_ture, y_pred):
-        return 2 * (y_pred - y_ture) / np.size(y_ture)
+        # Update weights and biases for the hidden layer
+        for i, neuron in enumerate(hidden_layer.neurons):
+            neuron.delta = np.dot([n.delta for n in output_layer.neurons], 
+                                  [n.weights[i] for n in output_layer.neurons]) * neuron.tanh_derivative(hidden_output[i])
+            for j in range(len(neuron.weights)):
+                neuron.weights[j] += learning_rate * neuron.delta * x[j]
+            neuron.bias += learning_rate * neuron.delta  # Update bias for hidden neuron
 
-    def fit(self,x,y_ture,ep):
-        for epoch in range(ep):
-            self.forwardPass(x)
-            res=self.result()
-            print("Output: {}".format(res[0]))
-            error1=self.mse(y_ture, res[0])
-            print("Error1: {}".format(error1))
-            for index_l , l in enumerate(self.network):
-                for index_n , n in enumerate(l.layer):
-                    # Update each weight in the list
-                    n.weights = [random.uniform(6.0, 0) for _ in n.weights]
-                    n.bias = random.uniform(6.0, 0)
+# XOR input and output
+X = np.array([[0, 0],
+              [0, 1],
+              [1, 0],
+              [1, 1]])
 
-            
-            self.forwardPass(x)
-            res=self.result()
-            error2=self.mse(y_ture, res[0])
-            print("Error2 {}".format(error2))
-            if error2 < error1:
-                print("Error {}".format(error2))
-            if error2 < 0.1:
-                break
-            
+y = np.array([[0],
+              [1],
+              [1],
+              [0]])
 
-x=[[0,0],[0,1],[1,0],[1,1]]
-y=[0,1,1,0]
+# Create and train the neural network
+nn = NeuralNetwork(input_size=2, hidden_layer_size=4, output_size=1)  # Increased hidden layer size
+nn.fit(X, y, learning_rate=0.1, epochs=10000)
 
-nn = NeuralNetwork(inputLayerNeuronQuantity=2,\
-                    hiddenLayerNeuronQuantity=2,\
-                    outputLayerNeuronQuantity=1,\
-                    hiddenlayerQuantity=1,\
-                    )
-nn.prepareNetwork()
-for i,data in enumerate(x):
-    nn.fit(data,y[i],1)
-
-#print(nn.output_matrix)
-    #print(nn.result())
-    #print("Error:{}".format(nn.mse(y[i],nn.result()[0])))
-#[[np.float64(0.7310585786300049), np.float64(0.7310585786300049)], [np.float64(0.9214430516601156), np.float64(0.9214430516601156)], [np.float64(0.9449497893439537)]]
+# Test the trained model
+for x in X:
+    print(f"Input: {x}, Predicted Output: {nn.forward_pass(x)}")
